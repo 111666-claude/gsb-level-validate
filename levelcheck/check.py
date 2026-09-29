@@ -1,44 +1,58 @@
 """关卡数据校验：引用完整性、二级引用、可达性与错误收集。
 
-缺陷：发现第一个错误就 return（后面的全漏报）、不检查传送门需要的钥匙是否存在、
-可达性把单向门当双向。
+口径（见 README）：
+- 遍历完所有房间与传送门再返回，错误收全；
+- 传送门的 key 必须在关卡的 keys 里（二级引用），缺钥匙单独报一条；
+- 可达性按门的方向建图，单向门只能单向通行，起点等于终点算可达；
+- 错误按房间名、再按传送门序号稳定排序，每条都带房间名与原因；
+- 整体复杂度 O(房间数 + 门数)，不对每个房间重扫全表。
 """
+
+from collections import deque
 
 
 def validate(level):
-    """缺陷：第一个坏引用就返回，其余问题全部漏报。"""
+    """收集全部校验错误，按（房间名, 传送门序号）稳定排序后返回。"""
     rooms = level["rooms"]
+    keys = set(level.get("keys", []))
     errors = []
     for name in sorted(rooms):
-        room = rooms[name]
-        for portal in room.get("portals", []):
-            if portal["to"] not in rooms:
-                errors.append("房间 %s 的传送门指向不存在的房间 %s" % (name, portal["to"]))
-                return errors  # 缺陷
+        for index, portal in enumerate(rooms[name].get("portals", [])):
+            target = portal.get("to")
+            if target not in rooms:
+                errors.append(
+                    "房间 %s 的第 %d 号传送门指向不存在的房间 %s" % (name, index, target))
+            key = portal.get("key")
+            if key is not None and key not in keys:
+                errors.append(
+                    "房间 %s 的第 %d 号传送门需要不存在的钥匙 %s" % (name, index, key))
     if not reachable(level, level["start"], level["exit"]):
         errors.append("从入口 %s 到不了出口 %s" % (level["start"], level["exit"]))
     return errors
 
 
 def reachable(level, start, goal):
-    """缺陷：邻接表不带方向，单向门被当成双向。"""
+    """有向 BFS：单向门只沿门的方向通行；起点等于终点算可达。"""
+    if start == goal:
+        return True
     rooms = level["rooms"]
-    adjacency = {name: set() for name in rooms}
-    for name in rooms:
-        for portal in rooms[name].get("portals", []):
-            target = portal["to"]
-            if target in rooms:
-                adjacency[name].add(target)
-                adjacency[target].add(name)  # 缺陷：反向也连上了
+    if start not in rooms or goal not in rooms:
+        return False
+    adjacency = {}
+    for name, room in rooms.items():
+        adjacency[name] = [portal["to"] for portal in room.get("portals", [])
+                           if portal.get("to") in rooms]
     seen = {start}
-    queue = [start]
+    queue = deque([start])
     while queue:
-        current = queue.pop(0)
-        for target in sorted(adjacency[current]):
+        current = queue.popleft()
+        for target in adjacency[current]:
+            if target == goal:
+                return True
             if target not in seen:
                 seen.add(target)
                 queue.append(target)
-    return goal in seen
+    return False
 
 
 def sample_a():
