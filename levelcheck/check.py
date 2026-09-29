@@ -1,40 +1,51 @@
-"""关卡数据校验：引用完整性、二级引用、可达性与错误收集。
+"""关卡数据校验：引用完整性、二级引用、可达性与错误收集。"""
 
-缺陷：发现第一个错误就 return（后面的全漏报）、不检查传送门需要的钥匙是否存在、
-可达性把单向门当双向。
-"""
+from collections import deque
 
 
 def validate(level):
-    """缺陷：第一个坏引用就返回，其余问题全部漏报。"""
+    """遍历完所有房间与传送门，收齐全部错误后再返回。
+
+    错误按房间名、再按传送门序号稳定排序；每条错误带房间名与原因。
+    """
     rooms = level["rooms"]
+    keys = set(level.get("keys", []))
     errors = []
     for name in sorted(rooms):
         room = rooms[name]
-        for portal in room.get("portals", []):
-            if portal["to"] not in rooms:
-                errors.append("房间 %s 的传送门指向不存在的房间 %s" % (name, portal["to"]))
-                return errors  # 缺陷
+        for index, portal in enumerate(room.get("portals", [])):
+            target = portal.get("to")
+            if target not in rooms:
+                errors.append(
+                    "房间 %s 的第 %d 号传送门指向不存在的房间 %s" % (name, index, target))
+            key = portal.get("key")
+            if key is not None and key not in keys:
+                errors.append(
+                    "房间 %s 的第 %d 号传送门需要的钥匙 %s 不在关卡钥匙表里"
+                    % (name, index, key))
     if not reachable(level, level["start"], level["exit"]):
         errors.append("从入口 %s 到不了出口 %s" % (level["start"], level["exit"]))
     return errors
 
 
 def reachable(level, start, goal):
-    """缺陷：邻接表不带方向，单向门被当成双向。"""
+    """有向可达性：单向门只能单向通行；起点与终点相同算可达。"""
+    if start == goal:
+        return True
     rooms = level["rooms"]
-    adjacency = {name: set() for name in rooms}
+    if start not in rooms or goal not in rooms:
+        return False
+    adjacency = {name: [] for name in rooms}
     for name in rooms:
         for portal in rooms[name].get("portals", []):
             target = portal["to"]
             if target in rooms:
-                adjacency[name].add(target)
-                adjacency[target].add(name)  # 缺陷：反向也连上了
+                adjacency[name].append(target)
     seen = {start}
-    queue = [start]
+    queue = deque([start])
     while queue:
-        current = queue.pop(0)
-        for target in sorted(adjacency[current]):
+        current = queue.popleft()
+        for target in adjacency[current]:
             if target not in seen:
                 seen.add(target)
                 queue.append(target)
